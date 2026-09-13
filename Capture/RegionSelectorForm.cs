@@ -14,25 +14,28 @@ public sealed class RegionSelectorForm : Form
     public RegionSelectorForm()
     {
         FormBorderStyle = FormBorderStyle.None;
-
         StartPosition = FormStartPosition.Manual;
 
         ShowInTaskbar = false;
         TopMost = true;
 
+        // Очень важно:
+        // НЕ используем Form.Opacity.
+        Opacity = 0.4;
+        // Затемнение рисуем самостоятельно.
+        BackColor = Color.Black;
+
         DoubleBuffered = true;
+        KeyPreview = true;
 
         Cursor = Cursors.Cross;
 
-        // Virtual screen — все подключённые мониторы.
+        // Вся виртуальная область всех мониторов.
         Bounds = SystemInformation.VirtualScreen;
-
-        KeyPreview = true;
 
         MouseDown += OnMouseDown;
         MouseMove += OnMouseMove;
         MouseUp += OnMouseUp;
-
         KeyDown += OnKeyDown;
     }
 
@@ -42,137 +45,243 @@ public sealed class RegionSelectorForm : Form
 
         Activate();
         Focus();
-
-        Cursor.Position = Cursor.Position;
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
 
-        var graphics = e.Graphics;
+        var g = e.Graphics;
 
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        // Затемнение.
-        using var overlayBrush = new SolidBrush(Color.FromArgb(100, 0, 0, 0));
+        // 1. Затемняем весь экран
+        using var overlayBrush =
+            new SolidBrush(Color.FromArgb(
+                    100,
+                    0,
+                    0,
+                    0));
 
-        graphics.FillRectangle(overlayBrush, ClientRectangle);
+        g.FillRectangle(
+            overlayBrush,
+            ClientRectangle);
 
-        if (!_selecting) return;
 
-        var rectangle = GetSelectionRectangle();
+        // 2. Если ничего не выделяем — всё.
+        if (!_selecting)
+            return;
 
-        if (rectangle.Width <= 0 || rectangle.Height <= 0) return;
+        var selection =   GetSelectionRectangle();
 
-        // Область выделения немного светлее.
-        using var selectionBrush = new SolidBrush(Color.FromArgb(40, 30, 144, 255));
+        if (selection.Width <= 0 || selection.Height <= 0)  return;
+        
+        // -------------------------------------------------
+        // 3. "Вырезаем" затемнение из выбранной области.
+        //
+        // Используем режим Copy, чтобы рисовать
+        // исходный screenshot-пиксель невозможно.
+        //
+        // Поэтому вместо настоящего "вырезания"
+        // делаем область почти прозрачной.
+        // -------------------------------------------------
 
-        graphics.FillRectangle(selectionBrush, rectangle);
-
-        using var pen = new Pen(Color.FromArgb(230, 30, 144, 255), 2);
-
-        graphics.DrawRectangle(pen, rectangle);
-
-        // Размер выделения.
-        var text = $"{rectangle.Width} × {rectangle.Height}";
-
-        using var font = new Font("Segoe UI", 10, FontStyle.Regular);
-
-        var textSize = graphics.MeasureString(text, font);
-        var textX = rectangle.X;
-        var textY = Math.Max(0, rectangle.Y - textSize.Height - 4);
-
-        var background = new RectangleF(
-                textX - 4,
-                textY - 2,
-                textSize.Width + 8,
-                textSize.Height + 4);
-
-        using var textBackground = new SolidBrush(
+        using var selectionBrush =
+            new SolidBrush(
                 Color.FromArgb(
-                    220,
-                    20,
-                    20,
-                    20));
+                    10,
+                    255,
+                    255,
+                    255));
 
-        graphics.FillRectangle(textBackground, background);
+        g.FillRectangle(
+            selectionBrush,
+            selection);
 
-        using var textBrush = new SolidBrush(Color.White);
-        graphics.DrawString(text, font, textBrush, textX, textY);
+        // -------------------------------------------------
+        // 4. Подсветка выбранной области
+        // -------------------------------------------------
+
+        using var borderPen =
+            new Pen(
+                Color.FromArgb(
+                    240,
+                    0,
+                    160,
+                    255),
+                2);
+
+        g.DrawRectangle(
+            borderPen,
+            selection);
+
+        // -------------------------------------------------
+        // 5. Размер выделения
+        // -------------------------------------------------
+
+        DrawSizeLabel(
+            g,
+            selection);
     }
 
-    private void OnMouseDown(object? sender, MouseEventArgs e)
+    private void DrawSizeLabel(
+        Graphics g,
+        Rectangle rectangle)
     {
-        if (e.Button != MouseButtons.Left) return;
+        var text =
+            $"{rectangle.Width} × {rectangle.Height}";
+
+        using var font =
+            new Font(
+                "Segoe UI",
+                10,
+                FontStyle.Regular);
+
+        var size =
+            g.MeasureString(
+                text,
+                font);
+
+        const int padding = 5;
+
+        var x = rectangle.X;
+
+        var y =
+            rectangle.Y - size.Height - padding * 2;
+
+        if (y < 0)
+            y = rectangle.Y + 3;
+
+        var background =
+            new RectangleF(
+                x,
+                y,
+                size.Width + padding * 2,
+                size.Height + padding * 2);
+
+        using var backgroundBrush =
+            new SolidBrush(
+                Color.FromArgb(
+                    220,
+                    30,
+                    30,
+                    30));
+
+        g.FillRectangle(
+            backgroundBrush,
+            background);
+
+        using var textBrush =
+            new SolidBrush(Color.White);
+
+        g.DrawString(
+            text,
+            font,
+            textBrush,
+            x + padding,
+            y + padding);
+    }
+
+    private void OnMouseDown(
+        object? sender,
+        MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left)
+            return;
 
         _startPoint = e.Location;
         _currentPoint = e.Location;
+
         _selecting = true;
+
         Capture = true;
 
         Invalidate();
     }
 
-    private void OnMouseMove(object? sender, MouseEventArgs e)
+    private void OnMouseMove(
+        object? sender,
+        MouseEventArgs e)
     {
-        if (!_selecting) return;
+        if (!_selecting)
+            return;
+
         _currentPoint = e.Location;
+
         Invalidate();
     }
 
-    private void OnMouseUp(object? sender, MouseEventArgs e)
+    private void OnMouseUp(
+        object? sender,
+        MouseEventArgs e)
     {
-        if (!_selecting || e.Button != MouseButtons.Left) return;
-
-        _currentPoint = e.Location;
-        _selecting = false;
-        Capture = false;
-
-        var rectangle = GetSelectionRectangle();
-
-        if (rectangle.Width < 2 || rectangle.Height < 2)
+        if (!_selecting ||
+            e.Button != MouseButtons.Left)
         {
-            DialogResult = DialogResult.Cancel;
-            Close();
             return;
         }
 
-        // Перевод из координат формы
-        // в координаты virtual screen.
-        SelectedScreenRectangle = new Rectangle(
+        _currentPoint = e.Location;
+
+        _selecting = false;
+
+        Capture = false;
+
+        var rectangle =  GetSelectionRectangle();
+
+        if (rectangle.Width < 2 ||
+            rectangle.Height < 2)
+        {
+            DialogResult =      DialogResult.Cancel;
+
+            Close();
+
+            return;
+        }
+
+        // Перевод координат формы
+        // в координаты виртуального экрана.
+        SelectedScreenRectangle =
+            new Rectangle(
                 rectangle.X + Bounds.X,
                 rectangle.Y + Bounds.Y,
                 rectangle.Width,
                 rectangle.Height);
 
-        DialogResult = DialogResult.OK;
+        DialogResult =  DialogResult.OK;
 
         Close();
     }
 
-    private void OnKeyDown(object? sender, KeyEventArgs e)
+    private void OnKeyDown(
+        object? sender,
+        KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Escape)
         {
-            DialogResult = DialogResult.Cancel;
+            DialogResult =   DialogResult.Cancel;
+
             Close();
+
             return;
         }
 
-        if (e.KeyCode == Keys.Enter && _selecting)
+        if (e.KeyCode == Keys.Enter &&  _selecting)
         {
-            var rectangle = GetSelectionRectangle();
+            var rectangle =  GetSelectionRectangle();
 
-            if (rectangle.Width >= 2 && rectangle.Height >= 2)
+            if (rectangle.Width >= 2 &&
+                rectangle.Height >= 2)
             {
-                SelectedScreenRectangle = new Rectangle(
+                SelectedScreenRectangle =
+                    new Rectangle(
                         rectangle.X + Bounds.X,
                         rectangle.Y + Bounds.Y,
                         rectangle.Width,
                         rectangle.Height);
 
-                DialogResult = DialogResult.OK;
+                DialogResult =
+                    DialogResult.OK;
 
                 Close();
             }
@@ -182,9 +291,20 @@ public sealed class RegionSelectorForm : Form
     private Rectangle GetSelectionRectangle()
     {
         return new (
-            Math.Min(_startPoint.X, _currentPoint.X),
-            Math.Min(_startPoint.Y, _currentPoint.Y),
-            Math.Abs(_currentPoint.X - _startPoint.X),
-            Math.Abs(_currentPoint.Y - _startPoint.Y));
+            Math.Min(
+                _startPoint.X,
+                _currentPoint.X),
+
+            Math.Min(
+                _startPoint.Y,
+                _currentPoint.Y),
+
+            Math.Abs(
+                _currentPoint.X -
+                _startPoint.X),
+
+            Math.Abs(
+                _currentPoint.Y -
+                _startPoint.Y));
     }
 }
