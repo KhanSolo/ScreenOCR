@@ -1,9 +1,13 @@
 using System.Drawing.Drawing2D;
+using ScreenOCR.Capture;
 
 namespace ScreenOCR.Capture;
 
 public sealed class RegionSelectorForm : Form
 {
+    private readonly Bitmap _screenSnapshot;
+    private readonly Rectangle _virtualScreen;
+
     private Point _startPoint;
     private Point _currentPoint;
 
@@ -13,36 +17,51 @@ public sealed class RegionSelectorForm : Form
 
     public RegionSelectorForm()
     {
+        // 1. Получаем геометрию virtual screen
+
+        _virtualScreen = SystemInformation.VirtualScreen;
+
+        // 2. Сначала снимаем весь экран.
+        //
+        // ВАЖНО:    // snapshot должен быть сделан ДО показа overlay.
+
+        _screenSnapshot = ScreenCapture.Capture(_virtualScreen);
+
+        // 3. Настраиваем overlay
+
         FormBorderStyle = FormBorderStyle.None;
+
         StartPosition = FormStartPosition.Manual;
 
+        Bounds = _virtualScreen;
+
         ShowInTaskbar = false;
+
         TopMost = true;
 
-        // Очень важно:
-        // НЕ используем Form.Opacity.
-        Opacity = 0.4;
-        // Затемнение рисуем самостоятельно.
-        BackColor = Color.Black;
+        // Вот здесь используем Form.Opacity.
+        Opacity = 0.35;
 
+        // Цвет overlay.
+        BackColor = Color.Black;
+        Cursor = Cursors.Cross;
         DoubleBuffered = true;
         KeyPreview = true;
 
-        Cursor = Cursors.Cross;
-
-        // Вся виртуальная область всех мониторов.
-        Bounds = SystemInformation.VirtualScreen;
+        // 4. Mouse
 
         MouseDown += OnMouseDown;
         MouseMove += OnMouseMove;
         MouseUp += OnMouseUp;
+
+        // 5. Keyboard
+
         KeyDown += OnKeyDown;
     }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-
         Activate();
         Focus();
     }
@@ -50,60 +69,53 @@ public sealed class RegionSelectorForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
+        var graphics = e.Graphics;
 
-        var g = e.Graphics;
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        g.SmoothingMode = SmoothingMode.AntiAlias;
+        // Пока пользователь ничего не выделяет,
+        // весь Form уже затемнён через Opacity.
 
-        // 1. Затемняем весь экран
-        using var overlayBrush =
-            new SolidBrush(Color.FromArgb(
-                    100,
-                    0,
-                    0,
-                    0));
-
-        g.FillRectangle(
-            overlayBrush,
-            ClientRectangle);
-
-
-        // 2. Если ничего не выделяем — всё.
         if (!_selecting)
             return;
 
-        var selection =   GetSelectionRectangle();
+        var selection = GetSelectionRectangle();
 
-        if (selection.Width <= 0 || selection.Height <= 0)  return;
-        
+        if (selection.Width <= 0 || selection.Height <= 0)
+            return;
+
         // -------------------------------------------------
-        // 3. "Вырезаем" затемнение из выбранной области.
+        // Координаты selection относительно Form.
         //
-        // Используем режим Copy, чтобы рисовать
-        // исходный screenshot-пиксель невозможно.
+        // Snapshot имеет координаты virtual screen,
+        // поэтому нужно учитывать _virtualScreen.X/Y.
+        // -------------------------------------------------
+
+        var sourceRectangle = new Rectangle(
+                selection.X,
+                selection.Y,
+                selection.Width,
+                selection.Height);
+
+        // -------------------------------------------------
+        // Рисуем исходный snapshot поверх затемнённого
+        // Form.
         //
-        // Поэтому вместо настоящего "вырезания"
-        // делаем область почти прозрачной.
+        // Таким образом выделенная область становится
+        // визуально "незатемнённой".
         // -------------------------------------------------
 
-        using var selectionBrush =
-            new SolidBrush(
-                Color.FromArgb(
-                    10,
-                    255,
-                    255,
-                    255));
-
-        g.FillRectangle(
-            selectionBrush,
-            selection);
+        graphics.DrawImage(
+            _screenSnapshot,
+            selection,
+            sourceRectangle,
+            GraphicsUnit.Pixel);
 
         // -------------------------------------------------
-        // 4. Подсветка выбранной области
+        // Рамка
         // -------------------------------------------------
 
-        using var borderPen =
-            new Pen(
+        using var borderPen = new Pen(
                 Color.FromArgb(
                     240,
                     0,
@@ -111,25 +123,17 @@ public sealed class RegionSelectorForm : Form
                     255),
                 2);
 
-        g.DrawRectangle(
-            borderPen,
-            selection);
+        graphics.DrawRectangle(borderPen, selection);
 
-        // -------------------------------------------------
-        // 5. Размер выделения
-        // -------------------------------------------------
 
-        DrawSizeLabel(
-            g,
-            selection);
+        // Размер выделения
+
+        DrawSizeLabel(graphics, selection);
     }
 
-    private void DrawSizeLabel(
-        Graphics g,
-        Rectangle rectangle)
+    private void DrawSizeLabel(Graphics graphics, Rectangle rectangle)
     {
-        var text =
-            $"{rectangle.Width} × {rectangle.Height}";
+        var text = $"{rectangle.Width} × {rectangle.Height}";
 
         using var font =
             new Font(
@@ -137,8 +141,8 @@ public sealed class RegionSelectorForm : Form
                 10,
                 FontStyle.Regular);
 
-        var size =
-            g.MeasureString(
+        var textSize =
+            graphics.MeasureString(
                 text,
                 font);
 
@@ -146,18 +150,20 @@ public sealed class RegionSelectorForm : Form
 
         var x = rectangle.X;
 
-        var y =
-            rectangle.Y - size.Height - padding * 2;
+        var y = rectangle.Y -
+            textSize.Height -
+            padding * 2;
 
         if (y < 0)
+        {
             y = rectangle.Y + 3;
+        }
 
-        var background =
-            new RectangleF(
+        var background = new RectangleF(
                 x,
                 y,
-                size.Width + padding * 2,
-                size.Height + padding * 2);
+                textSize.Width + padding * 2,
+                textSize.Height + padding * 2);
 
         using var backgroundBrush =
             new SolidBrush(
@@ -167,14 +173,13 @@ public sealed class RegionSelectorForm : Form
                     30,
                     30));
 
-        g.FillRectangle(
+        graphics.FillRectangle(
             backgroundBrush,
             background);
 
-        using var textBrush =
-            new SolidBrush(Color.White);
+        using var textBrush = new SolidBrush(Color.White);
 
-        g.DrawString(
+        graphics.DrawString(
             text,
             font,
             textBrush,
@@ -182,14 +187,13 @@ public sealed class RegionSelectorForm : Form
             y + padding);
     }
 
-    private void OnMouseDown(
-        object? sender,
-        MouseEventArgs e)
+    private void OnMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button != MouseButtons.Left)
             return;
 
         _startPoint = e.Location;
+
         _currentPoint = e.Location;
 
         _selecting = true;
@@ -199,9 +203,7 @@ public sealed class RegionSelectorForm : Form
         Invalidate();
     }
 
-    private void OnMouseMove(
-        object? sender,
-        MouseEventArgs e)
+    private void OnMouseMove(object? sender, MouseEventArgs e)
     {
         if (!_selecting)
             return;
@@ -232,23 +234,25 @@ public sealed class RegionSelectorForm : Form
         if (rectangle.Width < 2 ||
             rectangle.Height < 2)
         {
-            DialogResult =      DialogResult.Cancel;
+            DialogResult = DialogResult.Cancel;
 
             Close();
 
             return;
         }
 
-        // Перевод координат формы
-        // в координаты виртуального экрана.
+        // Перевод координат Form -> virtual screen.
+
         SelectedScreenRectangle =
             new Rectangle(
-                rectangle.X + Bounds.X,
-                rectangle.Y + Bounds.Y,
+                rectangle.X + _virtualScreen.X,
+
+                rectangle.Y + _virtualScreen.Y,
+
                 rectangle.Width,
                 rectangle.Height);
 
-        DialogResult =  DialogResult.OK;
+        DialogResult = DialogResult.OK;
 
         Close();
     }
@@ -257,31 +261,32 @@ public sealed class RegionSelectorForm : Form
         object? sender,
         KeyEventArgs e)
     {
+        // ESC = отмена
         if (e.KeyCode == Keys.Escape)
         {
-            DialogResult =   DialogResult.Cancel;
+            DialogResult = DialogResult.Cancel;
 
             Close();
 
             return;
         }
 
-        if (e.KeyCode == Keys.Enter &&  _selecting)
+        // ENTER = подтверждение
+        if (e.KeyCode == Keys.Enter && _selecting)
         {
-            var rectangle =  GetSelectionRectangle();
+            var rectangle = GetSelectionRectangle();
 
             if (rectangle.Width >= 2 &&
                 rectangle.Height >= 2)
             {
                 SelectedScreenRectangle =
                     new Rectangle(
-                        rectangle.X + Bounds.X,
-                        rectangle.Y + Bounds.Y,
+                        rectangle.X + _virtualScreen.X,
+                        rectangle.Y + _virtualScreen.Y,
                         rectangle.Width,
                         rectangle.Height);
 
-                DialogResult =
-                    DialogResult.OK;
+                DialogResult = DialogResult.OK;
 
                 Close();
             }
@@ -306,5 +311,15 @@ public sealed class RegionSelectorForm : Form
             Math.Abs(
                 _currentPoint.Y -
                 _startPoint.Y));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _screenSnapshot.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 }
