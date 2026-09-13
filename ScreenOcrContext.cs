@@ -8,7 +8,7 @@ namespace ScreenOCR;
 public sealed class ScreenOcrContext : ApplicationContext
 {
     private readonly NotifyIcon _trayIcon;
-    private readonly GlobalHotkey _hotkey;
+    private readonly GlobalHotkey? _hotkey;
     private readonly IOcrEngine _ocrEngine;
 
     private bool _isBusy;
@@ -16,12 +16,23 @@ public sealed class ScreenOcrContext : ApplicationContext
     public ScreenOcrContext()
     {
         _ocrEngine = new DummyOcrEngine();
-
         _trayIcon = CreateTrayIcon();
 
-        _hotkey = new GlobalHotkey(Keys.T, HotkeyModifiers.Win | HotkeyModifiers.Shift);
+        try
+        {
+            _hotkey = new GlobalHotkey(Keys.T, HotkeyModifiers.Control | HotkeyModifiers.Shift);
+            _hotkey.Pressed += OnHotkeyPressed;
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                "Screen OCR",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
 
-        _hotkey.Pressed += OnHotkeyPressed;
+            ExitApplication();
+        }
     }
 
     private NotifyIcon CreateTrayIcon()
@@ -45,8 +56,7 @@ public sealed class ScreenOcrContext : ApplicationContext
 
     private async void StartOcr()
     {
-        if (_isBusy)
-            return;
+        if (_isBusy) return;
 
         _isBusy = true;
 
@@ -56,11 +66,9 @@ public sealed class ScreenOcrContext : ApplicationContext
 
             var result = selector.ShowDialog();
 
-            if (result != DialogResult.OK)
-                return;
+            if (result != DialogResult.OK) return;
 
-            var screenRectangle =
-                selector.SelectedScreenRectangle;
+            var screenRectangle = selector.SelectedScreenRectangle;
 
             if (screenRectangle.Width <= 0 || screenRectangle.Height <= 0) { return; }
 
@@ -105,7 +113,7 @@ public sealed class ScreenOcrContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
-        _hotkey.Dispose();
+        _hotkey?.Dispose();
 
         _trayIcon.Visible = false;
         _trayIcon.Dispose();

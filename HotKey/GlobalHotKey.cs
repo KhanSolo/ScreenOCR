@@ -37,9 +37,7 @@ public sealed class GlobalHotkey : NativeWindow, IDisposable
 
     public event Action? Pressed;
 
-    public GlobalHotkey(
-        Keys key,
-        HotkeyModifiers modifiers)
+    public GlobalHotkey(Keys key, HotkeyModifiers modifiers)
     {
         _id = Interlocked.Increment(ref _nextId);
 
