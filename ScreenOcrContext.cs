@@ -1,5 +1,5 @@
 using ScreenOCR.Capture;
-using ScreenOCR.Clipboard;
+using ScreenOCR.Clipboards;
 using ScreenOCR.Hotkey;
 using ScreenOCR.OCR;
 
@@ -25,12 +25,7 @@ public sealed class ScreenOcrContext : ApplicationContext
         }
         catch (InvalidOperationException ex)
         {
-            MessageBox.Show(
-                ex.Message,
-                "Screen OCR",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-
+            MessageBox.Show(ex.Message, "Screen OCR", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             ExitApplication();
         }
     }
@@ -38,7 +33,6 @@ public sealed class ScreenOcrContext : ApplicationContext
     private NotifyIcon CreateTrayIcon()
     {
         var menu = new ContextMenuStrip();
-
         menu.Items.Add("Распознать текст",  null,  (_, _) => StartOcr());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Выход", null, (_, _) => ExitApplication());
@@ -70,7 +64,7 @@ public sealed class ScreenOcrContext : ApplicationContext
 
             var screenRectangle = selector.SelectedScreenRectangle;
 
-            if (screenRectangle.Width <= 0 || screenRectangle.Height <= 0) { return; }
+            if (screenRectangle.Width <= 0 || screenRectangle.Height <= 0) return;
 
             using var bitmap = ScreenCapture.Capture(screenRectangle);
 

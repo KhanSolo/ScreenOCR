@@ -15,7 +15,6 @@ public enum HotkeyModifiers : uint
 public sealed class GlobalHotkey : NativeWindow, IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
-
     private const uint MOD_NOREPEAT = 0x4000;
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -26,9 +25,7 @@ public sealed class GlobalHotkey : NativeWindow, IDisposable
         uint vk);
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UnregisterHotKey(
-        IntPtr hWnd,
-        int id);
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     private static int _nextId = 0x5000;
 
@@ -76,7 +73,6 @@ public sealed class GlobalHotkey : NativeWindow, IDisposable
         if (_registered)
         {
             UnregisterHotKey(Handle, _id);
-
             _registered = false;
         }
 
